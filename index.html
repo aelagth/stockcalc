@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>투자 시뮬레이션</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 40px;
+        }
+        h1, h2, h3 {
+            color: #333;
+        }
+        label {
+            display: inline-block;
+            width: 200px;
+            margin-bottom: 10px;
+        }
+        input[type="number"], input[type="text"] {
+            width: 200px;
+            padding: 5px;
+            margin-bottom: 10px;
+        }
+        .stock-form {
+            border: 1px solid #ccc;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .stock-form h3 {
+            margin-top: 0;
+        }
+        #result {
+            margin-top: 40px;
+        }
+        hr {
+            margin: 20px 0;
+        }
+    </style>
+    <script>
+        // 주식 수에 따라 입력 폼 생성
+        function generateStockForms() {
+            const numStocks = document.getElementById('num_stocks').value;
+            const stockFormsDiv = document.getElementById('stock_forms');
+            stockFormsDiv.innerHTML = '';
+
+            for (let i = 1; i <= numStocks; i++) {
+                const stockForm = `
+                <div class="stock-form">
+                    <h3>주식 ${i} 정보</h3>
+                    <label>주식 이름:</label>
+                    <input type="text" name="name_${i}" required><br>
+
+                    <label>국가 (미국/한국):</label>
+                    <input type="text" name="country_${i}" required><br>
+
+                    <label>현재 주가 (원):</label>
+                    <input type="number" name="initial_price_${i}" required><br>
+
+                    <label>현재 배당률 (%):</label>
+                    <input type="number" name="dividend_rate_${i}" required><br>
+
+                    <label>배당 연간 성장률 (%):</label>
+                    <input type="number" name="dividend_growth_rate_${i}" required><br>
+
+                    <label>주가 연간 성장률 (%):</label>
+                    <input type="number" name="stock_growth_rate_${i}" required><br>
+
+                    <label>투자 비율 (%):</label>
+                    <input type="number" name="allocation_percentage_${i}" required><br>
+
+                    <label>기존 보유 주식 수:</label>
+                    <input type="number" name="existing_shares_${i}" value="0" required><br>
+                </div>
+                `;
+                stockFormsDiv.insertAdjacentHTML('beforeend', stockForm);
+            }
+        }
+
+        // 폼 제출 시 계산 실행
+        function runSimulation(event) {
+            event.preventDefault(); // 폼의 기본 제출 동작 방지
+
+            // 사용자 입력 값 가져오기
+            const investment_period_years = parseInt(document.querySelector('input[name="investment_period_years"]').value);
+            let total_monthly_investment = parseFloat(document.querySelector('input[name="total_monthly_investment"]').value);
+            const annual_investment_increase = parseFloat(document.querySelector('input[name="annual_investment_increase"]').value) / 100;
+            const num_stocks = parseInt(document.querySelector('input[name="num_stocks"]').value);
+            const reinvest_dividends = document.querySelector('input[name="reinvest_dividends"]:checked').value === '예';
+
+            let total_allocation = 0;
+            let stocks = [];
+
+            for (let i = 1; i <= num_stocks; i++) {
+                let stock = {};
+                stock.name = document.querySelector(`input[name="name_${i}"]`).value;
+                stock.country = document.querySelector(`input[name="country_${i}"]`).value.trim();
+
+                if (stock.country === '미국') {
+                    stock.dividend_tax_rate = 0.15; // 15%
+                } else if (stock.country === '한국') {
+                    stock.dividend_tax_rate = 0.154; // 15.4%
+                } else {
+                    alert("국가를 '미국' 또는 '한국'으로 정확히 입력해주세요.");
+                    return;
+                }
+
+                stock.initial_price = parseFloat(document.querySelector(`input[name="initial_price_${i}"]`).value);
+                stock.dividend_rate = parseFloat(document.querySelector(`input[name="dividend_rate_${i}"]`).value) / 100;
+                stock.dividend_growth_rate = parseFloat(document.querySelector(`input[name="dividend_growth_rate_${i}"]`).value) / 100;
+                stock.stock_growth_rate = parseFloat(document.querySelector(`input[name="stock_growth_rate_${i}"]`).value) / 100;
+                stock.allocation_percentage = parseFloat(document.querySelector(`input[name="allocation_percentage_${i}"]`).value) / 100;
+                total_allocation += stock.allocation_percentage;
+                stock.existing_shares = parseInt(document.querySelector(`input[name="existing_shares_${i}"]`).value);
+
+                // 초기화
+                stock.total_shares = stock.existing_shares;
+                stock.current_monthly_investment = 0;
+                stock.cash_dividends = 0;
+                stock.remaining_cash = 0;
+
+                stocks.push(stock);
+            }
+
+            if (Math.abs(total_allocation - 1) > 0.0001) {  // 부동 소수점 오차를 고려하여 비교
+                alert("투자 비율의 합이 100%가 아닙니다. 비율을 조정해주세요.");
+                return;
+            }
+
+            // 투자 시뮬레이션 로직 실행
+            const months = investment_period_years * 12;
+            let total_invested = 0;
+
+            stocks.forEach(stock => {
+                stock.monthly_stock_growth_rate = Math.pow(1 + stock.stock_growth_rate, 1/12) - 1;
+                stock.monthly_dividend_growth_rate = Math.pow(1 + stock.dividend_growth_rate, 1/12) - 1;
+                stock.current_stock_price = stock.initial_price;
+                stock.monthly_dividend_per_share = (stock.initial_price * stock.dividend_rate / 12);
+                stock.dividend_income_total = 0;
+                stock.market_value = stock.total_shares * stock.current_stock_price;
+            });
+
+            for (let month = 1; month <= months; month++) {
+                // 연간 투자 금액 증가 적용
+                if (month !== 1 && (month - 1) % 12 === 0) {
+                    total_monthly_investment *= (1 + annual_investment_increase);
+                }
+
+                stocks.forEach(stock => {
+                    // 매월 투자 금액 할당
+                    stock.current_monthly_investment = total_monthly_investment * stock.allocation_percentage;
+
+                    // 현재 주식 가격 업데이트
+                    if (month > 1) {
+                        stock.current_stock_price *= (1 + stock.monthly_stock_growth_rate);
+                        stock.monthly_dividend_per_share *= (1 + stock.monthly_dividend_growth_rate);
+                    }
+
+                    // 매수 가능한 주식 수 계산 (정수 단위)
+                    let shares_bought = Math.floor(stock.current_monthly_investment / stock.current_stock_price);
+                    stock.total_shares += shares_bought;
+                    total_invested += shares_bought * stock.current_stock_price; // 실제 투자된 금액
+
+                    // 남은 현금 업데이트
+                    stock.remaining_cash += stock.current_monthly_investment - (shares_bought * stock.current_stock_price);
+
+                    // 배당금 계산 (세후)
+                    let gross_dividend_income = stock.total_shares * stock.monthly_dividend_per_share;
+                    let net_dividend_income = gross_dividend_income * (1 - stock.dividend_tax_rate);
+
+                    stock.dividend_income_total += net_dividend_income; // 세후 배당소득 누적
+
+                    if (reinvest_dividends) {
+                        // 배당금 + 남은 현금으로 주식 매수 시도
+                        let total_available_cash = stock.remaining_cash + net_dividend_income;
+                        let shares_from_dividends = Math.floor(total_available_cash / stock.current_stock_price);
+                        if (shares_from_dividends > 0) {
+                            stock.total_shares += shares_from_dividends;
+                            stock.remaining_cash = total_available_cash - (shares_from_dividends * stock.current_stock_price);
+                        } else {
+                            stock.remaining_cash = total_available_cash;
+                        }
+                    } else {
+                        // 재투자하지 않는 경우, 배당금은 현금으로 누적
+                        stock.cash_dividends += net_dividend_income;
+                    }
+
+                    // 현재 주식의 시장 가치 업데이트
+                    stock.market_value = stock.total_shares * stock.current_stock_price;
+                });
+            }
+
+            // 투자 기간 종료 시 결과 계산
+            let total_annual_dividend_income = 0;
+            let total_market_value = 0;
+            let total_cash_dividends = 0;
+
+            stocks.forEach(stock => {
+                let final_monthly_dividend_per_share = stock.monthly_dividend_per_share;
+                let annual_dividend_income = stock.total_shares * final_monthly_dividend_per_share * 12 * (1 - stock.dividend_tax_rate);
+                stock.annual_dividend_income = annual_dividend_income;
+                total_annual_dividend_income += annual_dividend_income;
+                total_market_value += stock.market_value;
+                total_cash_dividends += stock.cash_dividends + stock.remaining_cash; // 남은 현금 포함
+
+                // 연평균 수익률 계산을 위해 저장
+                stock.final_stock_price = stock.current_stock_price;
+            });
+
+            // 총 자산 가치 계산 (주식 시장 가치 + 현금 보유액)
+            let total_asset_value = total_market_value + total_cash_dividends;
+
+            // 연평균 수익률(CAGR) 계산
+            let cagr = (Math.pow(total_asset_value / total_invested, 1 / investment_period_years) - 1) * 100;
+
+            // 결과 표시
+            displayResults(stocks, total_invested, total_annual_dividend_income, total_market_value, total_cash_dividends, total_asset_value, cagr, reinvest_dividends);
+        }
+
+        // 결과를 페이지에 표시
+        function displayResults(stocks, total_invested, total_annual_dividend_income, total_market_value, total_cash_dividends, total_asset_value, cagr, reinvest_dividends) {
+            let resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = '<h2>시뮬레이션 결과</h2>';
+
+            stocks.forEach(stock => {
+                let stockResult = `
+                <h3>${stock.name} (${stock.country} 주식)</h3>
+                <p>보유 주식 수: ${stock.total_shares}주</p>
+                <p>현재 주가: ${stock.final_stock_price.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}원</p>
+                <p>주당 최종 배당금(세후): ${(stock.monthly_dividend_per_share * 12 * (1 - stock.dividend_tax_rate)).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}원</p>
+                <p>예상 연간 배당금(세후): ${stock.annual_dividend_income.toLocaleString()}원</p>
+                <p>주식의 시장 가치: ${stock.market_value.toLocaleString()}원</p>
+                ${!reinvest_dividends ? `<p>누적 현금 배당금(세후): ${stock.cash_dividends.toLocaleString()}원</p>` : ''}
+                <p>남은 현금: ${stock.remaining_cash.toLocaleString()}원</p>
+                <hr>
+                `;
+                resultDiv.insertAdjacentHTML('beforeend', stockResult);
+            });
+
+            let summary = `
+            <h3>요약</h3>
+            <p>총 투자 금액: ${total_invested.toLocaleString()}원</p>
+            <p>총 예상 연간 배당금(세후): ${total_annual_dividend_income.toLocaleString()}원</p>
+            <p>총 주식의 시장 가치: ${total_market_value.toLocaleString()}원</p>
+            ${!reinvest_dividends ? `<p>누적 현금 배당금(세후): ${total_cash_dividends.toLocaleString()}원</p>` : ''}
+            <p>총 자산 가치: ${total_asset_value.toLocaleString()}원</p>
+            <p>연평균 수익률 (CAGR): ${cagr.toFixed(2)}%</p>
+            `;
+            resultDiv.insertAdjacentHTML('beforeend', summary);
+        }
+    </script>
+</head>
+<body>
+    <h1>투자 시뮬레이션</h1>
+    <form onsubmit="runSimulation(event)">
+        <label>투자 기간 (년):</label>
+        <input type="number" name="investment_period_years" required><br>
+
+        <label>초기 월 투자 금액 (원):</label>
+        <input type="number" name="total_monthly_investment" required><br>
+
+        <label>연간 투자 금액 증가율 (%):</label>
+        <input type="number" name="annual_investment_increase" required><br>
+
+        <label>포트폴리오 내 주식 수:</label>
+        <input type="number" id="num_stocks" name="num_stocks" min="1" required oninput="generateStockForms()"><br>
+
+        <label>배당금을 재투자하시겠습니까?</label>
+        <input type="radio" name="reinvest_dividends" value="예" checked>예
+        <input type="radio" name="reinvest_dividends" value="아니오">아니오<br>
+
+        <hr>
+
+        <!-- 주식 정보 입력 폼 -->
+        <div id="stock_forms"></div>
+
+        <input type="submit" value="시뮬레이션 실행">
+    </form>
+
+    <div id="result"></div>
+</body>
+</html>
