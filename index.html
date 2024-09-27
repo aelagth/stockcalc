@@ -6,6 +6,7 @@
     <!-- 뷰포트 메타 태그 -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
+        /* 기존 스타일은 동일합니다. */
         body {
             font-family: Arial, sans-serif;
             margin: 20px;
@@ -98,23 +99,30 @@
                     </div>
                     <div class="form-group">
                         <label>현재 주가 (원):</label>
-                        <input type="number" name="initial_price_${i}" required>
+                        <input type="number" name="initial_price_${i}" step="0.01" required>
                     </div>
                     <div class="form-group">
                         <label>현재 배당률 (%):</label>
-                        <input type="number" name="dividend_rate_${i}" required>
+                        <input type="number" name="dividend_rate_${i}" step="0.0001" required>
                     </div>
                     <div class="form-group">
                         <label>배당 연간 성장률 (%):</label>
-                        <input type="number" name="dividend_growth_rate_${i}" required>
+                        <input type="number" name="dividend_growth_rate_${i}" step="0.0001" required>
                     </div>
                     <div class="form-group">
                         <label>주가 연간 성장률 (%):</label>
-                        <input type="number" name="stock_growth_rate_${i}" required>
+                        <input type="number" name="stock_growth_rate_${i}" step="0.0001" required>
+                    </div>
+                    <div class="form-group">
+                        <label>배당 주기:</label>
+                        <select name="dividend_frequency_${i}" required>
+                            <option value="월">월배당</option>
+                            <option value="분기">분기배당</option>
+                        </select>
                     </div>
                     <div class="form-group">
                         <label>투자 비율 (%):</label>
-                        <input type="number" name="allocation_percentage_${i}" required>
+                        <input type="number" name="allocation_percentage_${i}" step="0.0001" required>
                     </div>
                     <div class="form-group">
                         <label>기존 보유 주식 수:</label>
@@ -158,6 +166,7 @@
                 stock.dividend_rate = parseFloat(document.querySelector(`input[name="dividend_rate_${i}"]`).value) / 100;
                 stock.dividend_growth_rate = parseFloat(document.querySelector(`input[name="dividend_growth_rate_${i}"]`).value) / 100;
                 stock.stock_growth_rate = parseFloat(document.querySelector(`input[name="stock_growth_rate_${i}"]`).value) / 100;
+                stock.dividend_frequency = document.querySelector(`select[name="dividend_frequency_${i}"]`).value;
                 stock.allocation_percentage = parseFloat(document.querySelector(`input[name="allocation_percentage_${i}"]`).value) / 100;
                 total_allocation += stock.allocation_percentage;
                 stock.existing_shares = parseInt(document.querySelector(`input[name="existing_shares_${i}"]`).value);
@@ -184,6 +193,8 @@
                 stock.monthly_stock_growth_rate = Math.pow(1 + stock.stock_growth_rate, 1/12) - 1;
                 stock.monthly_dividend_growth_rate = Math.pow(1 + stock.dividend_growth_rate, 1/12) - 1;
                 stock.current_stock_price = stock.initial_price;
+                stock.dividend_period = stock.dividend_frequency === '월' ? 1 : 3; // 배당 주기 (월: 1개월, 분기: 3개월)
+                stock.dividend_counter = 0; // 배당금 지급 월을 추적
                 stock.monthly_dividend_per_share = (stock.initial_price * stock.dividend_rate / 12);
                 stock.dividend_income_total = 0;
                 stock.market_value = stock.total_shares * stock.current_stock_price;
@@ -213,25 +224,30 @@
                     // 남은 현금 업데이트
                     stock.remaining_cash += stock.current_monthly_investment - (shares_bought * stock.current_stock_price);
 
-                    // 배당금 계산 (세후)
-                    let gross_dividend_income = stock.total_shares * stock.monthly_dividend_per_share;
-                    let net_dividend_income = gross_dividend_income * (1 - stock.dividend_tax_rate);
+                    // 배당금 계산 (배당 주기에 따라)
+                    stock.dividend_counter += 1;
 
-                    stock.dividend_income_total += net_dividend_income; // 세후 배당소득 누적
+                    if (stock.dividend_counter === stock.dividend_period) {
+                        let gross_dividend_income = stock.total_shares * stock.monthly_dividend_per_share * stock.dividend_period;
+                        let net_dividend_income = gross_dividend_income * (1 - stock.dividend_tax_rate);
+                        stock.dividend_income_total += net_dividend_income; // 세후 배당소득 누적
 
-                    if (reinvest_dividends) {
-                        // 배당금 + 남은 현금으로 주식 매수 시도
-                        let total_available_cash = stock.remaining_cash + net_dividend_income;
-                        let shares_from_dividends = Math.floor(total_available_cash / stock.current_stock_price);
-                        if (shares_from_dividends > 0) {
-                            stock.total_shares += shares_from_dividends;
-                            stock.remaining_cash = total_available_cash - (shares_from_dividends * stock.current_stock_price);
+                        if (reinvest_dividends) {
+                            // 배당금 + 남은 현금으로 주식 매수 시도
+                            let total_available_cash = stock.remaining_cash + net_dividend_income;
+                            let shares_from_dividends = Math.floor(total_available_cash / stock.current_stock_price);
+                            if (shares_from_dividends > 0) {
+                                stock.total_shares += shares_from_dividends;
+                                stock.remaining_cash = total_available_cash - (shares_from_dividends * stock.current_stock_price);
+                            } else {
+                                stock.remaining_cash = total_available_cash;
+                            }
                         } else {
-                            stock.remaining_cash = total_available_cash;
+                            // 재투자하지 않는 경우, 배당금은 현금으로 누적
+                            stock.cash_dividends += net_dividend_income;
                         }
-                    } else {
-                        // 재투자하지 않는 경우, 배당금은 현금으로 누적
-                        stock.cash_dividends += net_dividend_income;
+
+                        stock.dividend_counter = 0; // 배당금 지급 후 카운터 리셋
                     }
 
                     // 현재 주식의 시장 가치 업데이트
@@ -246,7 +262,14 @@
 
             stocks.forEach(stock => {
                 let final_monthly_dividend_per_share = stock.monthly_dividend_per_share;
-                let annual_dividend_income = stock.total_shares * final_monthly_dividend_per_share * 12 * (1 - stock.dividend_tax_rate);
+                let annual_dividend_income = 0;
+
+                if (stock.dividend_frequency === '월') {
+                    annual_dividend_income = stock.total_shares * final_monthly_dividend_per_share * 12 * (1 - stock.dividend_tax_rate);
+                } else {
+                    annual_dividend_income = stock.total_shares * final_monthly_dividend_per_share * 4 * 3 * (1 - stock.dividend_tax_rate); // 분기 배당
+                }
+
                 stock.annual_dividend_income = annual_dividend_income;
                 total_annual_dividend_income += annual_dividend_income;
                 total_market_value += stock.market_value;
@@ -272,11 +295,20 @@
             resultDiv.innerHTML = '<h2>시뮬레이션 결과</h2>';
 
             stocks.forEach(stock => {
+                let final_monthly_dividend_per_share = stock.monthly_dividend_per_share;
+                let annual_dividend_per_share = 0;
+
+                if (stock.dividend_frequency === '월') {
+                    annual_dividend_per_share = final_monthly_dividend_per_share * 12;
+                } else {
+                    annual_dividend_per_share = final_monthly_dividend_per_share * 4 * 3; // 분기 배당
+                }
+
                 let stockResult = `
                 <h3>${stock.name} (${stock.country} 주식)</h3>
                 <p>보유 주식 수: ${stock.total_shares}주</p>
                 <p>현재 주가: ${stock.final_stock_price.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}원</p>
-                <p>주당 최종 배당금(세후): ${(stock.monthly_dividend_per_share * 12 * (1 - stock.dividend_tax_rate)).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}원</p>
+                <p>주당 최종 배당금(세후): ${(annual_dividend_per_share * (1 - stock.dividend_tax_rate)).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}원</p>
                 <p>예상 연간 배당금(세후): ${stock.annual_dividend_income.toLocaleString()}원</p>
                 <p>주식의 시장 가치: ${stock.market_value.toLocaleString()}원</p>
                 ${!reinvest_dividends ? `<p>누적 현금 배당금(세후): ${stock.cash_dividends.toLocaleString()}원</p>` : ''}
@@ -311,11 +343,11 @@
         </div>
         <div class="form-group">
             <label>초기 월 투자 금액 (원):</label>
-            <input type="number" name="total_monthly_investment" required>
+            <input type="number" name="total_monthly_investment" step="0.01" required>
         </div>
         <div class="form-group">
             <label>연간 투자 금액 증가율 (%):</label>
-            <input type="number" name="annual_investment_increase" required>
+            <input type="number" name="annual_investment_increase" step="0.0001" required>
         </div>
         <div class="form-group">
             <label>포트폴리오 내 주식 수:</label>
