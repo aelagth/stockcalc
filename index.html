@@ -216,38 +216,45 @@
                         stock.monthly_dividend_per_share *= (1 + stock.monthly_dividend_growth_rate);
                     }
 
-                    // 매수 가능한 주식 수 계산 (정수 단위)
-                    let shares_bought = Math.floor(stock.current_monthly_investment / stock.current_stock_price);
-                    stock.total_shares += shares_bought;
-                    total_invested += shares_bought * stock.current_stock_price; // 실제 투자된 금액
-
-                    // 남은 현금 업데이트
-                    stock.remaining_cash += stock.current_monthly_investment - (shares_bought * stock.current_stock_price);
-
                     // 배당금 계산 (배당 주기에 따라)
                     stock.dividend_counter += 1;
+                    let net_dividend_income = 0;
 
                     if (stock.dividend_counter === stock.dividend_period) {
                         let gross_dividend_income = stock.total_shares * stock.monthly_dividend_per_share * stock.dividend_period;
-                        let net_dividend_income = gross_dividend_income * (1 - stock.dividend_tax_rate);
+                        net_dividend_income = gross_dividend_income * (1 - stock.dividend_tax_rate);
                         stock.dividend_income_total += net_dividend_income; // 세후 배당소득 누적
+                        stock.dividend_counter = 0; // 배당금 지급 후 카운터 리셋
+                    }
 
-                        if (reinvest_dividends) {
-                            // 배당금 + 남은 현금으로 주식 매수 시도
-                            let total_available_cash = stock.remaining_cash + net_dividend_income;
-                            let shares_from_dividends = Math.floor(total_available_cash / stock.current_stock_price);
-                            if (shares_from_dividends > 0) {
-                                stock.total_shares += shares_from_dividends;
-                                stock.remaining_cash = total_available_cash - (shares_from_dividends * stock.current_stock_price);
-                            } else {
-                                stock.remaining_cash = total_available_cash;
-                            }
+                    if (reinvest_dividends) {
+                        // 배당금과 남은 현금을 현재 월 투자 금액에 합산
+                        let total_available_cash = stock.remaining_cash + stock.current_monthly_investment + net_dividend_income;
+
+                        // 매수 가능한 주식 수 계산 (정수 단위)
+                        let shares_bought = Math.floor(total_available_cash / stock.current_stock_price);
+                        if (shares_bought > 0) {
+                            stock.total_shares += shares_bought;
+                            total_invested += shares_bought * stock.current_stock_price; // 실제 투자된 금액
+                            stock.remaining_cash = total_available_cash - (shares_bought * stock.current_stock_price);
                         } else {
-                            // 재투자하지 않는 경우, 배당금은 현금으로 누적
-                            stock.cash_dividends += net_dividend_income;
+                            stock.remaining_cash += stock.current_monthly_investment + net_dividend_income;
+                        }
+                    } else {
+                        // 재투자하지 않는 경우
+                        // 매월 투자 금액과 남은 현금으로 주식 매수
+                        let total_available_cash = stock.remaining_cash + stock.current_monthly_investment;
+                        let shares_bought = Math.floor(total_available_cash / stock.current_stock_price);
+                        if (shares_bought > 0) {
+                            stock.total_shares += shares_bought;
+                            total_invested += shares_bought * stock.current_stock_price; // 실제 투자된 금액
+                            stock.remaining_cash = total_available_cash - (shares_bought * stock.current_stock_price);
+                        } else {
+                            stock.remaining_cash += stock.current_monthly_investment;
                         }
 
-                        stock.dividend_counter = 0; // 배당금 지급 후 카운터 리셋
+                        // 배당금은 현금으로 누적
+                        stock.cash_dividends += net_dividend_income;
                     }
 
                     // 현재 주식의 시장 가치 업데이트
