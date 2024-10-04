@@ -26,7 +26,7 @@
             padding: 8px;
             margin-bottom: 15px;
             box-sizing: border-box;
-            font-size: 16px; /* 폰트 크기 조정 */
+            font-size: 16px;
         }
         input[type="submit"] {
             padding: 10px 20px;
@@ -73,8 +73,34 @@
             margin-right: 10px;
             font-weight: normal;
         }
+        /* 로딩 스피너 스타일 */
+        .spinner {
+            display: none;
+            margin-left: 10px;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #ccc;
+            border-top: 2px solid #333;
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        /* 에러 메시지 스타일 */
+        .error-message {
+            color: red;
+            font-weight: bold;
+            margin-bottom: 15px;
+        }
     </style>
     <script>
+        // 환경 변수로부터 API 키를 가져옵니다.
+        let apiKey = ''; // 여기에 API 키를 입력하거나, 사용자로부터 입력받을 수 있습니다.
+
+        // 환율 데이터 저장
+        let exchangeRateUSD = 1; // 기본값은 1 (원화 환율 적용)
+
         // 주식 수에 따라 입력 폼 생성
         function generateStockForms() {
             const numStocks = document.getElementById('num_stocks').value;
@@ -83,22 +109,27 @@
 
             for (let i = 1; i <= numStocks; i++) {
                 const stockForm = `
-                <div class="stock-form">
+                <div class="stock-form" id="stock_form_${i}">
                     <h3>주식 ${i} 정보</h3>
+                    <div class="form-group">
+                        <label>주식 티커(symbol):</label>
+                        <input type="text" name="ticker_${i}" placeholder="예: AAPL" onchange="fetchStockData(${i})">
+                        <div class="spinner" id="spinner_${i}"></div>
+                    </div>
                     <div class="form-group">
                         <label>주식 이름:</label>
                         <input type="text" name="name_${i}" required>
                     </div>
                     <div class="form-group">
                         <label>국가:</label>
-                        <select name="country_${i}" required>
+                        <select name="country_${i}" required onchange="updateCurrency(${i})">
                             <option value="">선택하세요</option>
                             <option value="미국">미국</option>
                             <option value="한국">한국</option>
                         </select>
                     </div>
                     <div class="form-group">
-                        <label>현재 주가 (원):</label>
+                        <label>현재 주가 (<span id="currency_label_${i}">원</span>):</label>
                         <input type="number" name="initial_price_${i}" step="0.01" required>
                     </div>
                     <div class="form-group">
@@ -134,9 +165,121 @@
             }
         }
 
+        // 국가 선택에 따라 통화 단위 업데이트
+        function updateCurrency(index) {
+            const country = document.querySelector(`select[name="country_${index}"]`).value;
+            const currencyLabel = document.getElementById(`currency_label_${index}`);
+            if (country === '미국') {
+                currencyLabel.textContent = 'USD';
+            } else {
+                currencyLabel.textContent = '원';
+            }
+        }
+
+        // 주식 데이터 가져오기
+        async function fetchStockData(index) {
+            const ticker = document.querySelector(`input[name="ticker_${index}"]`).value.trim();
+            if (!ticker) {
+                alert('티커(symbol)를 입력해주세요.');
+                return;
+            }
+
+            // 로딩 스피너 표시
+            document.getElementById(`spinner_${index}`).style.display = 'inline-block';
+
+            try {
+                // 캐시 확인
+                let data = JSON.parse(localStorage.getItem(`stockData_${ticker}`));
+                const now = new Date();
+                if (data && now - new Date(data.timestamp) < 24 * 60 * 60 * 1000) {
+                    // 24시간 이내의 캐시된 데이터 사용
+                    data = data.data;
+                } else {
+                    // Alpha Vantage API를 사용하여 주식 데이터를 가져옵니다.
+                    const response = await fetch(`https://www.alphavantage.co/query?function=OVERVIEW&symbol=${ticker}&apikey=${apiKey}`);
+                    data = await response.json();
+
+                    // API 호출 제한 초과 또는 오류 처리
+                    if (data.Note) {
+                        alert('API 호출 한도를 초과했습니다. 잠시 후 다시 시도해주세요.');
+                        return;
+                    }
+
+                    if (!data.Name) {
+                        alert('해당 티커에 대한 정보를 찾을 수 없습니다. 수동으로 입력해주세요.');
+                        return;
+                    }
+
+                    // 데이터 캐싱
+                    localStorage.setItem(`stockData_${ticker}`, JSON.stringify({ data: data, timestamp: new Date() }));
+                }
+
+                // 가져온 데이터로 입력 필드 채우기
+                document.querySelector(`input[name="name_${index}"]`).value = data.Name;
+                document.querySelector(`select[name="country_${index}"]`).value = data.Country === 'United States' ? '미국' : '한국';
+                updateCurrency(index);
+
+                // 주가 데이터 가져오기 (실시간)
+                let priceData = JSON.parse(localStorage.getItem(`priceData_${ticker}`));
+                if (priceData && now - new Date(priceData.timestamp) < 60 * 60 * 1000) {
+                    // 1시간 이내의 캐시된 데이터 사용
+                    priceData = priceData.data;
+                } else {
+                    const priceResponse = await fetch(`https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${ticker}&apikey=${apiKey}`);
+                    priceData = await priceResponse.json();
+
+                    // 데이터 캐싱
+                    localStorage.setItem(`priceData_${ticker}`, JSON.stringify({ data: priceData, timestamp: new Date() }));
+                }
+
+                const price = parseFloat(priceData['Global Quote']['05. price']);
+
+                // 환율 적용 (USD -> 원)
+                let initialPrice = price;
+                if (data.Country === 'United States') {
+                    initialPrice = price * exchangeRateUSD;
+                }
+
+                document.querySelector(`input[name="initial_price_${index}"]`).value = initialPrice.toFixed(2);
+                document.querySelector(`input[name="dividend_rate_${index}"]`).value = parseFloat(data.DividendYield * 100).toFixed(4);
+                document.querySelector(`input[name="dividend_growth_rate_${index}"]`).value = parseFloat(data.DividendPerShareGrowth5Y * 100).toFixed(4);
+                document.querySelector(`input[name="stock_growth_rate_${index}"]`).value = parseFloat(data.AnalystTargetPriceGrowth5Y * 100).toFixed(4);
+            } catch (error) {
+                console.error(error);
+                alert('주식 데이터를 가져오는 중 오류가 발생했습니다. 수동으로 입력해주세요.');
+            } finally {
+                // 로딩 스피너 숨기기
+                document.getElementById(`spinner_${index}`).style.display = 'none';
+            }
+        }
+
+        // 환율 데이터 가져오기
+        async function fetchExchangeRate() {
+            try {
+                const response = await fetch(`https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency=USD&to_currency=KRW&apikey=${apiKey}`);
+                const data = await response.json();
+                exchangeRateUSD = parseFloat(data['Realtime Currency Exchange Rate']['5. Exchange Rate']);
+            } catch (error) {
+                console.error('환율 데이터를 가져오는 중 오류가 발생했습니다.');
+                exchangeRateUSD = 1; // 오류 발생 시 1로 설정
+            }
+        }
+
         // 폼 제출 시 계산 실행
-        function runSimulation(event) {
+        async function runSimulation(event) {
             event.preventDefault(); // 폼의 기본 제출 동작 방지
+
+            // API 키 확인
+            if (!apiKey) {
+                apiKey = prompt('API 키를 입력해주세요:');
+                if (!apiKey) {
+                    alert('API 키가 필요합니다.');
+                    return;
+                }
+            }
+
+            // 환율 데이터 가져오기
+            await fetchExchangeRate();
 
             // 사용자 입력 값 가져오기
             const investment_period_years = parseInt(document.querySelector('input[name="investment_period_years"]').value);
@@ -144,6 +287,20 @@
             const annual_investment_increase = parseFloat(document.querySelector('input[name="annual_investment_increase"]').value) / 100;
             const num_stocks = parseInt(document.querySelector('input[name="num_stocks"]').value);
             const reinvest_dividends = document.querySelector('input[name="reinvest_dividends"]:checked').value === '예';
+
+            // 입력 값 검증
+            if (isNaN(investment_period_years) || investment_period_years <= 0) {
+                alert('투자 기간은 1년 이상이어야 합니다.');
+                return;
+            }
+            if (isNaN(total_monthly_investment) || total_monthly_investment <= 0) {
+                alert('초기 월 투자 금액을 올바르게 입력해주세요.');
+                return;
+            }
+            if (isNaN(annual_investment_increase)) {
+                alert('연간 투자 금액 증가율을 올바르게 입력해주세요.');
+                return;
+            }
 
             let total_allocation = 0;
             let stocks = [];
@@ -158,7 +315,7 @@
                 } else if (stock.country === '한국') {
                     stock.dividend_tax_rate = 0.154; // 15.4%
                 } else {
-                    alert("국가를 '미국' 또는 '한국'으로 선택해주세요.");
+                    alert(`주식 ${i}의 국가를 선택해주세요.`);
                     return;
                 }
 
@@ -171,6 +328,12 @@
                 total_allocation += stock.allocation_percentage;
                 stock.existing_shares = parseInt(document.querySelector(`input[name="existing_shares_${i}"]`).value);
 
+                // 입력 값 검증
+                if (!stock.name || isNaN(stock.initial_price) || isNaN(stock.dividend_rate) || isNaN(stock.dividend_growth_rate) || isNaN(stock.stock_growth_rate) || isNaN(stock.allocation_percentage)) {
+                    alert(`주식 ${i}의 모든 정보를 올바르게 입력해주세요.`);
+                    return;
+                }
+
                 // 초기화
                 stock.total_shares = stock.existing_shares;
                 stock.current_monthly_investment = 0;
@@ -180,7 +343,7 @@
                 stocks.push(stock);
             }
 
-            if (Math.abs(total_allocation - 1) > 0.0001) {  // 부동 소수점 오차를 고려하여 비교
+            if (Math.abs(total_allocation - 1) > 0.0001) {
                 alert("투자 비율의 합이 100%가 아닙니다. 비율을 조정해주세요.");
                 return;
             }
@@ -193,71 +356,61 @@
                 stock.monthly_stock_growth_rate = Math.pow(1 + stock.stock_growth_rate, 1/12) - 1;
                 stock.monthly_dividend_growth_rate = Math.pow(1 + stock.dividend_growth_rate, 1/12) - 1;
                 stock.current_stock_price = stock.initial_price;
-                stock.dividend_period = stock.dividend_frequency === '월' ? 1 : 3; // 배당 주기 (월: 1개월, 분기: 3개월)
-                stock.dividend_counter = 0; // 배당금 지급 월을 추적
+                stock.dividend_period = stock.dividend_frequency === '월' ? 1 : 3;
+                stock.dividend_counter = 0;
                 stock.monthly_dividend_per_share = (stock.initial_price * stock.dividend_rate) / 12;
                 stock.dividend_income_total = 0;
                 stock.market_value = stock.total_shares * stock.current_stock_price;
             });
 
             for (let month = 1; month <= months; month++) {
-                // 연간 투자 금액 증가 적용
                 if (month !== 1 && (month - 1) % 12 === 0) {
                     total_monthly_investment *= (1 + annual_investment_increase);
                 }
 
                 stocks.forEach(stock => {
-                    // 매월 투자 금액 할당
                     stock.current_monthly_investment = total_monthly_investment * stock.allocation_percentage;
 
-                    // 현재 주식 가격 업데이트
                     if (month > 1) {
                         stock.current_stock_price *= (1 + stock.monthly_stock_growth_rate);
                         stock.monthly_dividend_per_share *= (1 + stock.monthly_dividend_growth_rate);
                     }
 
-                    // 배당금 계산 (배당 주기에 따라)
                     stock.dividend_counter += 1;
                     let net_dividend_income = 0;
 
                     if (stock.dividend_counter === stock.dividend_period) {
                         let gross_dividend_income = stock.total_shares * stock.monthly_dividend_per_share * stock.dividend_period;
                         net_dividend_income = gross_dividend_income * (1 - stock.dividend_tax_rate);
-                        stock.dividend_income_total += net_dividend_income; // 세후 배당소득 누적
-                        stock.dividend_counter = 0; // 배당금 지급 후 카운터 리셋
+                        stock.dividend_income_total += net_dividend_income;
+                        stock.dividend_counter = 0;
                     }
 
                     if (reinvest_dividends) {
-                        // 배당금과 남은 현금을 현재 월 투자 금액에 합산
                         let total_available_cash = stock.remaining_cash + stock.current_monthly_investment + net_dividend_income;
 
-                        // 매수 가능한 주식 수 계산 (정수 단위)
                         let shares_bought = Math.floor(total_available_cash / stock.current_stock_price);
                         if (shares_bought > 0) {
                             stock.total_shares += shares_bought;
-                            total_invested += shares_bought * stock.current_stock_price; // 실제 투자된 금액
+                            total_invested += shares_bought * stock.current_stock_price;
                             stock.remaining_cash = total_available_cash - (shares_bought * stock.current_stock_price);
                         } else {
                             stock.remaining_cash += stock.current_monthly_investment + net_dividend_income;
                         }
                     } else {
-                        // 재투자하지 않는 경우
-                        // 매월 투자 금액과 남은 현금으로 주식 매수
                         let total_available_cash = stock.remaining_cash + stock.current_monthly_investment;
                         let shares_bought = Math.floor(total_available_cash / stock.current_stock_price);
                         if (shares_bought > 0) {
                             stock.total_shares += shares_bought;
-                            total_invested += shares_bought * stock.current_stock_price; // 실제 투자된 금액
+                            total_invested += shares_bought * stock.current_stock_price;
                             stock.remaining_cash = total_available_cash - (shares_bought * stock.current_stock_price);
                         } else {
                             stock.remaining_cash += stock.current_monthly_investment;
                         }
 
-                        // 배당금은 현금으로 누적
                         stock.cash_dividends += net_dividend_income;
                     }
 
-                    // 현재 주식의 시장 가치 업데이트
                     stock.market_value = stock.total_shares * stock.current_stock_price;
                 });
             }
@@ -273,34 +426,25 @@
                 let annual_dividend_per_share = 0;
 
                 if (stock.dividend_frequency === '월') {
-                    // 월배당의 경우
                     annual_dividend_per_share = final_monthly_dividend_per_share * 12 * (1 - stock.dividend_tax_rate);
                 } else {
-                    // 분기배당의 경우
-                    let final_quarterly_dividend_per_share = final_monthly_dividend_per_share * 3; // 분기별 배당금
-                    annual_dividend_per_share = final_quarterly_dividend_per_share * 4 * (1 - stock.dividend_tax_rate); // 연간 배당금 (세후)
+                    let final_quarterly_dividend_per_share = final_monthly_dividend_per_share * 3;
+                    annual_dividend_per_share = final_quarterly_dividend_per_share * 4 * (1 - stock.dividend_tax_rate);
                 }
 
                 annual_dividend_income = stock.total_shares * annual_dividend_per_share;
                 stock.annual_dividend_income = annual_dividend_income;
                 total_annual_dividend_income += annual_dividend_income;
                 total_market_value += stock.market_value;
-                total_cash_dividends += stock.cash_dividends + stock.remaining_cash; // 남은 현금 포함
+                total_cash_dividends += stock.cash_dividends + stock.remaining_cash;
 
-                // 주당 연간 배당금을 저장
                 stock.annual_dividend_per_share = annual_dividend_per_share;
-
-                // 연평균 수익률 계산을 위해 저장
                 stock.final_stock_price = stock.current_stock_price;
             });
 
-            // 총 자산 가치 계산 (주식 시장 가치 + 현금 보유액)
             let total_asset_value = total_market_value + total_cash_dividends;
-
-            // 연평균 수익률(CAGR) 계산
             let cagr = (Math.pow(total_asset_value / total_invested, 1 / investment_period_years) - 1) * 100;
 
-            // 결과 표시
             displayResults(stocks, total_invested, total_annual_dividend_income, total_market_value, total_cash_dividends, total_asset_value, cagr, reinvest_dividends);
         }
 
@@ -312,13 +456,13 @@
             stocks.forEach(stock => {
                 let stockResult = `
                 <h3>${stock.name} (${stock.country} 주식)</h3>
-                <p>보유 주식 수: ${stock.total_shares}주</p>
-                <p>현재 주가: ${stock.final_stock_price.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}원</p>
-                <p>주당 최종 배당금(세후): ${stock.annual_dividend_per_share.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}원</p>
-                <p>예상 연간 배당금(세후): ${stock.annual_dividend_income.toLocaleString()}원</p>
-                <p>주식의 시장 가치: ${stock.market_value.toLocaleString()}원</p>
-                ${!reinvest_dividends ? `<p>누적 현금 배당금(세후): ${stock.cash_dividends.toLocaleString()}원</p>` : ''}
-                <p>남은 현금: ${stock.remaining_cash.toLocaleString()}원</p>
+                <p>보유 주식 수: ${stock.total_shares.toLocaleString()}주</p>
+                <p>현재 주가: ${stock.final_stock_price.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}${stock.country === '미국' ? 'USD' : '원'}</p>
+                <p>주당 최종 배당금(세후): ${stock.annual_dividend_per_share.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}${stock.country === '미국' ? 'USD' : '원'}</p>
+                <p>예상 연간 배당금(세후): ${stock.annual_dividend_income.toLocaleString()}${stock.country === '미국' ? 'USD' : '원'}</p>
+                <p>주식의 시장 가치: ${stock.market_value.toLocaleString()}${stock.country === '미국' ? 'USD' : '원'}</p>
+                ${!reinvest_dividends ? `<p>누적 현금 배당금(세후): ${stock.cash_dividends.toLocaleString()}${stock.country === '미국' ? 'USD' : '원'}</p>` : ''}
+                <p>남은 현금: ${stock.remaining_cash.toLocaleString()}${stock.country === '미국' ? 'USD' : '원'}</p>
                 <hr>
                 `;
                 resultDiv.insertAdjacentHTML('beforeend', stockResult);
@@ -335,7 +479,6 @@
             `;
             resultDiv.insertAdjacentHTML('beforeend', summary);
 
-            // 결과 영역으로 스크롤
             resultDiv.scrollIntoView({ behavior: 'smooth' });
         }
     </script>
@@ -345,19 +488,19 @@
     <form onsubmit="runSimulation(event)">
         <div class="form-group">
             <label>투자 기간 (년):</label>
-            <input type="number" name="investment_period_years" required>
+            <input type="number" name="investment_period_years" required placeholder="예: 10">
         </div>
         <div class="form-group">
             <label>초기 월 투자 금액 (원):</label>
-            <input type="number" name="total_monthly_investment" step="0.01" required>
+            <input type="number" name="total_monthly_investment" step="0.01" required placeholder="예: 1000000">
         </div>
         <div class="form-group">
             <label>연간 투자 금액 증가율 (%):</label>
-            <input type="number" name="annual_investment_increase" step="0.0001" required>
+            <input type="number" name="annual_investment_increase" step="0.0001" required placeholder="예: 5">
         </div>
         <div class="form-group">
             <label>포트폴리오 내 주식 수:</label>
-            <input type="number" id="num_stocks" name="num_stocks" min="1" required oninput="generateStockForms()">
+            <input type="number" id="num_stocks" name="num_stocks" min="1" required oninput="generateStockForms()" placeholder="예: 2">
         </div>
         <div class="radio-group">
             <label>배당금을 재투자하시겠습니까?</label>
