@@ -77,7 +77,7 @@
     </style>
     <script>
         // 주식 수에 따라 입력 폼 생성
-        function generateStockForms(loadData = null) {
+        function generateStockForms() {
             const numStocks = document.getElementById('num_stocks').value;
             const stockFormsDiv = document.getElementById('stock_forms');
             stockFormsDiv.innerHTML = '';
@@ -132,10 +132,6 @@
                 </div>
                 `;
                 stockFormsDiv.insertAdjacentHTML('beforeend', stockForm);
-            }
-
-            if (loadData) {
-                loadInputData(loadData);
             }
         }
 
@@ -207,7 +203,8 @@
             document.querySelector('input[name="num_stocks"]').value = inputData.num_stocks;
             document.querySelector(`input[name="reinvest_dividends"][value="${inputData.reinvest_dividends}"]`).checked = true;
 
-            generateStockForms(inputData);
+            // 주식 수에 따라 입력 폼 생성
+            generateStockForms();
 
             // 주식 정보 불러오기
             for (let i = 1; i <= inputData.num_stocks; i++) {
