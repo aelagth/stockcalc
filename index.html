@@ -77,7 +77,7 @@
     </style>
     <script>
         // 주식 수에 따라 입력 폼 생성
-        function generateStockForms(loadData = false) {
+        function generateStockForms(loadData = null) {
             const numStocks = document.getElementById('num_stocks').value;
             const stockFormsDiv = document.getElementById('stock_forms');
             stockFormsDiv.innerHTML = '';
@@ -135,11 +135,11 @@
             }
 
             if (loadData) {
-                loadInputData();
+                loadInputData(loadData);
             }
         }
 
-        // 입력 내용 저장
+        // 입력 내용 저장 (txt 파일로 다운로드)
         function saveInputData() {
             let inputData = {};
 
@@ -166,45 +166,61 @@
                 inputData.stocks.push(stock);
             }
 
-            // 로컬 스토리지에 저장
-            localStorage.setItem('investmentInputData', JSON.stringify(inputData));
-            alert('입력 내용이 저장되었습니다.');
+            // 데이터 직렬화 및 파일로 저장
+            const dataStr = JSON.stringify(inputData);
+            const blob = new Blob([dataStr], { type: "text/plain" });
+            const url = URL.createObjectURL(blob);
+
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'investment_data.txt';
+            a.click();
+            URL.revokeObjectURL(url);
+
+            alert('입력 내용이 txt 파일로 저장되었습니다.');
         }
 
-        // 입력 내용 불러오기
-        function loadInputData() {
-            const inputData = JSON.parse(localStorage.getItem('investmentInputData'));
-            if (inputData) {
-                // 기본 정보 불러오기
-                document.querySelector('input[name="investment_period_years"]').value = inputData.investment_period_years;
-                document.querySelector('input[name="total_monthly_investment"]').value = inputData.total_monthly_investment;
-                document.querySelector('input[name="annual_investment_increase"]').value = inputData.annual_investment_increase;
-                document.querySelector('input[name="num_stocks"]').value = inputData.num_stocks;
-                document.querySelector(`input[name="reinvest_dividends"][value="${inputData.reinvest_dividends}"]`).checked = true;
-
-                generateStockForms();
-
-                // 주식 정보 불러오기
-                for (let i = 1; i <= inputData.num_stocks; i++) {
-                    let stock = inputData.stocks[i - 1];
-                    document.querySelector(`input[name="name_${i}"]`).value = stock.name;
-                    document.querySelector(`select[name="country_${i}"]`).value = stock.country;
-                    document.querySelector(`input[name="initial_price_${i}"]`).value = stock.initial_price;
-                    document.querySelector(`input[name="dividend_rate_${i}"]`).value = stock.dividend_rate;
-                    document.querySelector(`input[name="dividend_growth_rate_${i}"]`).value = stock.dividend_growth_rate;
-                    document.querySelector(`input[name="stock_growth_rate_${i}"]`).value = stock.stock_growth_rate;
-                    document.querySelector(`select[name="dividend_frequency_${i}"]`).value = stock.dividend_frequency;
-                    document.querySelector(`input[name="allocation_percentage_${i}"]`).value = stock.allocation_percentage;
-                    document.querySelector(`input[name="existing_shares_${i}"]`).value = stock.existing_shares;
-                }
+        // 입력 내용 불러오기 (txt 파일에서)
+        function loadInputDataFromFile(event) {
+            const file = event.target.files[0];
+            if (!file) {
+                return;
             }
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const inputData = JSON.parse(e.target.result);
+                    loadInputData(inputData);
+                } catch (error) {
+                    alert('파일 형식이 올바르지 않습니다.');
+                }
+            };
+            reader.readAsText(file);
         }
 
-        // 저장된 데이터 삭제
-        function clearInputData() {
-            if (confirm('저장된 데이터를 삭제하시겠습니까?')) {
-                localStorage.removeItem('investmentInputData');
-                location.reload();
+        // 입력 필드에 데이터 채우기
+        function loadInputData(inputData) {
+            // 기본 정보 불러오기
+            document.querySelector('input[name="investment_period_years"]').value = inputData.investment_period_years;
+            document.querySelector('input[name="total_monthly_investment"]').value = inputData.total_monthly_investment;
+            document.querySelector('input[name="annual_investment_increase"]').value = inputData.annual_investment_increase;
+            document.querySelector('input[name="num_stocks"]').value = inputData.num_stocks;
+            document.querySelector(`input[name="reinvest_dividends"][value="${inputData.reinvest_dividends}"]`).checked = true;
+
+            generateStockForms(inputData);
+
+            // 주식 정보 불러오기
+            for (let i = 1; i <= inputData.num_stocks; i++) {
+                let stock = inputData.stocks[i - 1];
+                document.querySelector(`input[name="name_${i}"]`).value = stock.name;
+                document.querySelector(`select[name="country_${i}"]`).value = stock.country;
+                document.querySelector(`input[name="initial_price_${i}"]`).value = stock.initial_price;
+                document.querySelector(`input[name="dividend_rate_${i}"]`).value = stock.dividend_rate;
+                document.querySelector(`input[name="dividend_growth_rate_${i}"]`).value = stock.dividend_growth_rate;
+                document.querySelector(`input[name="stock_growth_rate_${i}"]`).value = stock.stock_growth_rate;
+                document.querySelector(`select[name="dividend_frequency_${i}"]`).value = stock.dividend_frequency;
+                document.querySelector(`input[name="allocation_percentage_${i}"]`).value = stock.allocation_percentage;
+                document.querySelector(`input[name="existing_shares_${i}"]`).value = stock.existing_shares;
             }
         }
 
@@ -398,20 +414,6 @@
 
             resultDiv.scrollIntoView({ behavior: 'smooth' });
         }
-
-        // 페이지 로드 시 저장된 데이터 불러오기
-        window.onload = function() {
-            const inputData = JSON.parse(localStorage.getItem('investmentInputData'));
-            if (inputData) {
-                document.querySelector('input[name="investment_period_years"]').value = inputData.investment_period_years;
-                document.querySelector('input[name="total_monthly_investment"]').value = inputData.total_monthly_investment;
-                document.querySelector('input[name="annual_investment_increase"]').value = inputData.annual_investment_increase;
-                document.querySelector('input[name="num_stocks"]').value = inputData.num_stocks;
-                document.querySelector(`input[name="reinvest_dividends"][value="${inputData.reinvest_dividends}"]`).checked = true;
-
-                generateStockForms(true);
-            }
-        };
     </script>
 </head>
 <body>
@@ -446,7 +448,8 @@
 
         <input type="submit" value="시뮬레이션 실행">
         <input type="button" value="입력 내용 저장" onclick="saveInputData()">
-        <input type="button" value="저장된 데이터 삭제" onclick="clearInputData()">
+        <label for="load_file" style="display: inline-block; padding: 10px 20px; background-color: #eee; border: 1px solid #ccc; cursor: pointer;">불러오기</label>
+        <input type="file" id="load_file" style="display: none;" accept=".txt" onchange="loadInputDataFromFile(event)">
     </form>
 
     <div id="result"></div>
