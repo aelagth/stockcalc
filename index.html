@@ -306,11 +306,31 @@
                     total_monthly_investment *= (1 + annual_investment_increase);
                 }
 
-                stocks.forEach(stock => {
-                    stock.current_monthly_investment = total_monthly_investment * stock.allocation_percentage;
+                let total_allocated_investment = 0;
 
+                // 각 주식에 투자 금액 할당 (10원 단위 절사)
+                stocks.forEach(stock => {
+                    stock.current_monthly_investment = Math.floor((total_monthly_investment * stock.allocation_percentage) / 10) * 10;
+                    total_allocated_investment += stock.current_monthly_investment;
+                });
+
+                // 남은 금액 계산
+                let remaining_investment = total_monthly_investment - total_allocated_investment;
+
+                // 남은 금액을 투자 비율이 가장 큰 주식에 추가
+                if (remaining_investment > 0) {
+                    let max_allocation_stock = stocks.reduce((prev, curr) => {
+                        return (prev.allocation_percentage > curr.allocation_percentage) ? prev : curr;
+                    });
+                    max_allocation_stock.current_monthly_investment += remaining_investment;
+                }
+
+                stocks.forEach(stock => {
                     // 매월 투자 금액을 총 투자 금액에 누적
                     total_invested += stock.current_monthly_investment;
+
+                    // 남은 잔액을 누적
+                    let total_available_cash = stock.current_monthly_investment + stock.remaining_cash;
 
                     if (month > 1) {
                         stock.current_stock_price *= (1 + stock.monthly_stock_growth_rate);
@@ -330,19 +350,17 @@
                     if (reinvest_dividends) {
                         // 배당금을 재투자하는 경우, 배당금을 총 투자 금액에 누적
                         total_invested += net_dividend_income;
-
-                        let total_available_cash = stock.current_monthly_investment + net_dividend_income;
-                        let shares_bought = total_available_cash / stock.current_stock_price;
-                        stock.total_shares += shares_bought;
-                        stock.remaining_cash = 0; // 잔액 없음
+                        total_available_cash += net_dividend_income;
                     } else {
-                        let total_available_cash = stock.current_monthly_investment;
-                        let shares_bought = total_available_cash / stock.current_stock_price;
-                        stock.total_shares += shares_bought;
-                        stock.remaining_cash = 0; // 잔액 없음
-
                         stock.cash_dividends += net_dividend_income;
                     }
+
+                    // 주식 매수 (정수 단위)
+                    let shares_bought = Math.floor(total_available_cash / stock.current_stock_price);
+                    let invested_amount = shares_bought * stock.current_stock_price;
+
+                    stock.total_shares += shares_bought;
+                    stock.remaining_cash = total_available_cash - invested_amount;
 
                     stock.market_value = stock.total_shares * stock.current_stock_price;
                 });
@@ -388,12 +406,13 @@
             stocks.forEach(stock => {
                 let stockResult = `
                 <h3>${stock.name} (${stock.country} 주식)</h3>
-                <p>보유 주식 수: ${stock.total_shares.toLocaleString(undefined, {minimumFractionDigits: 4, maximumFractionDigits: 4})}주</p>
+                <p>보유 주식 수: ${stock.total_shares.toLocaleString()}주</p>
                 <p>현재 주가: ${stock.final_stock_price.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}원</p>
                 <p>주당 최종 배당금(세후): ${stock.annual_dividend_per_share.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}원</p>
                 <p>예상 연간 배당금(세후): ${stock.annual_dividend_income.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}원</p>
                 <p>주식의 시장 가치: ${stock.market_value.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}원</p>
                 ${!reinvest_dividends ? `<p>누적 현금 배당금(세후): ${stock.cash_dividends.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}원</p>` : ''}
+                <p>남은 현금: ${stock.remaining_cash.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}원</p>
                 <hr>`;
                 resultDiv.insertAdjacentHTML('beforeend', stockResult);
             });
