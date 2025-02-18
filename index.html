@@ -228,7 +228,7 @@
             }
         }
 
-        // 폼 제출 시 계산 실행
+        // 폼 제출 시 계산 실행 (업데이트된 배당금 재투자 로직 적용)
         function runSimulation(event) {
             event.preventDefault();
 
@@ -242,6 +242,7 @@
             let total_allocation = 0;
             let stocks = [];
 
+            // 각 주식 정보 초기화
             for (let i = 1; i <= num_stocks; i++) {
                 let stock = {};
                 stock.name = document.querySelector(`input[name="name_${i}"]`).value;
@@ -265,103 +266,108 @@
                 total_allocation += stock.allocation_percentage;
                 stock.existing_shares = parseFloat(document.querySelector(`input[name="existing_shares_${i}"]`).value);
 
-                // 입력 값 검증
-                if (!stock.name || isNaN(stock.initial_price) || isNaN(stock.dividend_rate) || isNaN(stock.dividend_growth_rate) || isNaN(stock.stock_growth_rate) || isNaN(stock.allocation_percentage)) {
-                    alert(`주식 ${i}의 모든 정보를 올바르게 입력해주세요.`);
-                    return;
-                }
-
                 // 초기화
                 stock.total_shares = stock.existing_shares;
-                stock.current_monthly_investment = 0;
+                stock.current_stock_price = stock.initial_price;
+                stock.monthly_dividend_per_share = (stock.initial_price * stock.dividend_rate) / 12;
+                stock.dividend_counter = 0;
+                stock.dividend_income_total = 0;
                 stock.cash_dividends = 0;
                 stock.remaining_cash = 0;
+                stock.market_value = stock.total_shares * stock.current_stock_price;
+                // 임시 배당금 재투자 금액 (매월 초기화)
+                stock._dividend_to_reinvest = 0;
+
+                // 월별 성장률 계산
+                stock.monthly_stock_growth_rate = Math.pow(1 + stock.stock_growth_rate, 1 / 12) - 1;
+                stock.monthly_dividend_growth_rate = Math.pow(1 + stock.dividend_growth_rate, 1 / 12) - 1;
+                // 배당 지급 주기: 월은 1, 분기는 3개월마다 지급
+                stock.dividend_period = stock.dividend_frequency === '월' ? 1 : 3;
 
                 stocks.push(stock);
             }
 
+            // 투자 비율 합 검증 (소수 오차 허용)
             if (Math.abs(total_allocation - 1) > 0.0001) {
                 alert("투자 비율의 합이 100%가 아닙니다. 비율을 조정해주세요.");
                 return;
             }
 
-            // 투자 시뮬레이션 로직 실행
             const months = investment_period_years * 12;
             let total_invested = 0;
 
-            stocks.forEach(stock => {
-                stock.monthly_stock_growth_rate = Math.pow(1 + stock.stock_growth_rate, 1 / 12) - 1;
-                stock.monthly_dividend_growth_rate = Math.pow(1 + stock.dividend_growth_rate, 1 / 12) - 1;
-                stock.current_stock_price = stock.initial_price;
-                stock.dividend_period = stock.dividend_frequency === '월' ? 1 : 3;
-                stock.dividend_counter = 0;
-                stock.monthly_dividend_per_share = (stock.initial_price * stock.dividend_rate) / 12;
-                stock.dividend_income_total = 0;
-                stock.market_value = stock.total_shares * stock.current_stock_price;
-                stock.remaining_cash = 0; // 초기화
-            });
-
+            // 월별 시뮬레이션 시작
             for (let month = 1; month <= months; month++) {
+                // 매년 투자 금액 증가 적용
                 if (month !== 1 && (month - 1) % 12 === 0) {
                     total_monthly_investment *= (1 + annual_investment_increase);
                 }
 
                 let total_allocated_investment = 0;
 
-                // 각 주식에 투자 금액 할당 (10원 단위 절사)
+                // 각 주식에 월별 투자금 배분 (10원 단위 절사)
                 stocks.forEach(stock => {
                     stock.current_monthly_investment = Math.floor((total_monthly_investment * stock.allocation_percentage) / 10) * 10;
                     total_allocated_investment += stock.current_monthly_investment;
                 });
 
-                // 남은 금액 계산
+                // 남은 금액은 투자 비율이 가장 높은 주식에 추가
                 let remaining_investment = total_monthly_investment - total_allocated_investment;
-
-                // 남은 금액을 투자 비율이 가장 큰 주식에 추가
                 if (remaining_investment > 0) {
-                    let max_allocation_stock = stocks.reduce((prev, curr) => {
-                        return (prev.allocation_percentage > curr.allocation_percentage) ? prev : curr;
-                    });
+                    let max_allocation_stock = stocks.reduce((prev, curr) => (prev.allocation_percentage > curr.allocation_percentage ? prev : curr));
                     max_allocation_stock.current_monthly_investment += remaining_investment;
                 }
 
+                // 각 주식별로 월별 투자금과 잔액을 합산하여 사용 가능 현금을 계산하고, 배당금을 계산하여 임시 변수에 저장
                 stocks.forEach(stock => {
-                    // 매월 투자 금액을 총 투자 금액에 누적
+                    // 매월 투자금은 바로 투자금에 누적
                     total_invested += stock.current_monthly_investment;
+                    // 월별 투자금과 이전 잔액을 합한 사용 가능 현금
+                    stock.available_cash = stock.current_monthly_investment + stock.remaining_cash;
 
-                    // 남은 잔액을 누적
-                    let total_available_cash = stock.current_monthly_investment + stock.remaining_cash;
-
+                    // 주가 및 주당 배당금 업데이트 (첫 달 제외)
                     if (month > 1) {
                         stock.current_stock_price *= (1 + stock.monthly_stock_growth_rate);
                         stock.monthly_dividend_per_share *= (1 + stock.monthly_dividend_growth_rate);
                     }
 
+                    // 배당 지급 주기 계산
                     stock.dividend_counter += 1;
-                    let net_dividend_income = 0;
-
                     if (stock.dividend_counter === stock.dividend_period) {
                         let gross_dividend_income = stock.total_shares * stock.monthly_dividend_per_share * stock.dividend_period;
-                        net_dividend_income = gross_dividend_income * (1 - stock.dividend_tax_rate);
-                        stock.dividend_income_total += net_dividend_income;
+                        let net_dividend_income = gross_dividend_income * (1 - stock.dividend_tax_rate);
+                        // 배당금을 재투자하는 경우, 바로 해당 주식에 더하지 않고 임시 변수에 저장
+                        if (reinvest_dividends) {
+                            stock._dividend_to_reinvest = net_dividend_income;
+                        } else {
+                            stock.cash_dividends += net_dividend_income;
+                        }
                         stock.dividend_counter = 0;
-                    }
-
-                    if (reinvest_dividends) {
-                        // 배당금을 재투자하는 경우, 배당금을 총 투자 금액에 누적
-                        total_invested += net_dividend_income;
-                        total_available_cash += net_dividend_income;
                     } else {
-                        stock.cash_dividends += net_dividend_income;
+                        // 배당 지급 주기가 아니면 임시 배당금 0으로 초기화
+                        stock._dividend_to_reinvest = 0;
                     }
+                });
 
-                    // 주식 매수 (정수 단위)
-                    let shares_bought = Math.floor(total_available_cash / stock.current_stock_price);
+                // 배당금 재투자 옵션이 선택된 경우, 이번 달 발생한 모든 배당금을 한데 모아 재분배합니다.
+                if (reinvest_dividends) {
+                    // 이번 달 전체 배당금 풀 계산
+                    let monthDividendPool = stocks.reduce((sum, stock) => sum + (stock._dividend_to_reinvest || 0), 0);
+                    // 재투자된 배당금도 투자금에 포함
+                    total_invested += monthDividendPool;
+                    // 각 주식에 원래의 투자 비율에 따라 배당금을 배분
+                    stocks.forEach(stock => {
+                        let dividend_share = monthDividendPool * stock.allocation_percentage;
+                        stock.available_cash += dividend_share;
+                    });
+                }
+
+                // 각 주식별로 사용 가능 현금을 이용하여 주식 매수
+                stocks.forEach(stock => {
+                    let shares_bought = Math.floor(stock.available_cash / stock.current_stock_price);
                     let invested_amount = shares_bought * stock.current_stock_price;
-
                     stock.total_shares += shares_bought;
-                    stock.remaining_cash = total_available_cash - invested_amount;
-
+                    stock.remaining_cash = stock.available_cash - invested_amount;
                     stock.market_value = stock.total_shares * stock.current_stock_price;
                 });
             }
